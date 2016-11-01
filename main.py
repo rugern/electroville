@@ -2,7 +2,7 @@ import json
 import numpy
 from keras.models import Sequential
 from keras.layers import Dense
-from keras.optimizer import sgd
+from keras.optimizers import sgd
 
 
 def printLine():
@@ -22,8 +22,9 @@ def printBoard(state):
 
 
 def translateAction(action):
-    #TODO Return [row, column] for action
-    return
+    row = action // 3
+    column = action % 3
+    return row, column
 
 
 def checkRow(state, row, symbol):
@@ -56,8 +57,7 @@ class Game:
         [row, column] = translateAction(action)
         self.state[row][column] = symbol
         reward = self.getReward(symbol)
-        gameOver = self.hasWon(symbol)
-        return self.state, reward, gameOver
+        return self.state, reward
 
     def hasWon(self, symbol):
         diagonal = True
@@ -81,6 +81,12 @@ class Game:
 
     def reset(self):
         self.state = numpy.zeros((3, 3), dtype=numpy.int)
+
+    def getReward(self, symbol):
+        reward = 0
+        if (self.hasWon(symbol)):
+            reward += 100
+        return reward
 
 
 def play(model):
@@ -119,13 +125,15 @@ class ExperienceReplay:
         dimensions = self.memory[0][0][0].shape[1]
         inputs = numpy.zeros((min(memoryLength, batchSize), dimensions))
         targets = numpy.zeros((inputs.shape[0], numberOfActions))
+        print("inputs:", inputs)
+        print("targets:", targets)
         
-        for i, idx in enumerate(numpy.random.randint(0, memoryLength, size=inputs.shape[0])):
-            state, action, reward, stateP = self.memory[idx][0]
-            gameOver = self.memory[idx][1]
-            inputs[i:i + 1] = state
-            targets[i] = model.predict(state)[0]
-            qValue = numpy.max(model.predict(stateP)[0])
+        for i, item in enumerate(numpy.random.randint(0, memoryLength, size=inputs.shape[0])):
+            previousState, action, reward, state = self.memory[item][0]
+            gameOver = self.memory[item][1]
+            inputs[i:i + 1] = previousState
+            targets[i] = model.predict(previousState)[0]
+            qValue = numpy.max(model.predict(state)[0])
             if (gameOver):
                 targets[i, action] = reward
             else:
@@ -136,7 +144,8 @@ class ExperienceReplay:
 
 if __name__ == "__main__":
     exploration = 0.1
-    numberOfActions = 3
+    gridSize = 9
+    numberOfActions = gridSize
     epochs = 1000
     maxMemory = 500
     hiddenSize = 100
@@ -155,23 +164,31 @@ if __name__ == "__main__":
     for epoch in epochs:
         loss = 0.0
         game.reset()
-        gameOver = false
-        inp = game.getState()
+        gameOver = False
+        state = game.getState()
 
         while (not gameOver):
-            inpTemp = inp
+            previousState = state
+            action = None
             if (numpy.random.rand() <= exploration):
-                action = numpy.random.randint(0, numberOfActions, size=1)
+                action = numpy.random.randint(0, numberOfActions)
+                while (not game.isValidAction(action)):
+                    action = numpy.random.randint(0, numberOfActions)
             else:
-                q = model.predict(inpTemp)
+                q = model.predict(previousState)
                 action = numpy.argmax(q[0])
+                while (not game.isValidAction(action)):
+                    numpy.delete(q[0], action)
+                    action = numpy.argmax(q[0])
 
-            inp, reward, gameOver = game.act(action)
-            if (reward == 1):
+            state, reward = game.act(action, 2)
+
+            if (game.hasWon(2)):
                 winCount += 1
+                gameOver = True
             
-            experienceReplay.remember([inpTemp, action, reward, inp], gameOver)
-            inputs, targets = experienceReplay.getBatch(mode, batchSize=batchSize)
+            experienceReplay.remember([previousState, action, reward, state], gameOver)
+            inputs, targets = experienceReplay.getBatch(model, batchSize=batchSize)
             loss += model.train_on_batch(inputs, targets)[0]
         print("Epoch {:03d}/999 | Loss {:.4f} | Win count {}".format(e, loss, win_cnt))
 
