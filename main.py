@@ -40,6 +40,17 @@ def checkColumn(state, column, symbol):
             return False
     return True
 
+def hasWon(state, symbol):
+    diagonal = True
+    for i in range(3):
+        if (checkRow(state, i, symbol)):
+            return True
+        if (checkColumn(state, i, symbol)):
+            return True
+        if (state[i][i] != symbol):
+            diagonal = False
+    return diagonal
+
 
 class Game:
 
@@ -57,18 +68,7 @@ class Game:
         [row, column] = translateAction(action)
         self.state[row][column] = symbol
         reward = self.getReward(symbol)
-        return self.state, reward
-
-    def hasWon(self, symbol):
-        diagonal = True
-        for i in range(3):
-            if (checkRow(self.state, i, symbol)):
-                return True
-            if (checkColumn(self.state, i, symbol)):
-                return True
-            if (self, state[i][i] != symbol):
-                diagonal = False
-        return diagonal
+        return self.state.reshape(1, -1), reward
 
     def isValidAction(self, action):
         [row, column] = translateAction(action)
@@ -77,14 +77,14 @@ class Game:
         return self.state[row][column] == 0
 
     def getState(self):
-        return self.state
+        return self.state.reshape(1, -1)
 
     def reset(self):
         self.state = numpy.zeros((3, 3), dtype=numpy.int)
 
     def getReward(self, symbol):
         reward = 0
-        if (self.hasWon(symbol)):
+        if (hasWon(self.getState(), symbol)):
             reward += 100
         return reward
 
@@ -100,7 +100,7 @@ def play(model):
             move = getInput(model)
 
         game.act(move, symbol)
-        if (game.hasWon(symbol)):
+        if (hasWon(game.getState(), symbol)):
             return symbol
         playerTurn = not playerTurn
         print(playerTurn)
@@ -125,8 +125,6 @@ class ExperienceReplay:
         dimensions = self.memory[0][0][0].shape[1]
         inputs = numpy.zeros((min(memoryLength, batchSize), dimensions))
         targets = numpy.zeros((inputs.shape[0], numberOfActions))
-        print("inputs:", inputs)
-        print("targets:", targets)
         
         for i, item in enumerate(numpy.random.randint(0, memoryLength, size=inputs.shape[0])):
             previousState, action, reward, state = self.memory[item][0]
@@ -142,6 +140,13 @@ class ExperienceReplay:
         return inputs, targets
     
 
+def playerMove(game, symbol):
+    action = numpy.random.randint(0, 9)
+    while (not game.isValidAction(action)):
+        action = numpy.random.randint(0, 9)
+    game.act(action, symbol)
+
+
 if __name__ == "__main__":
     exploration = 0.1
     gridSize = 9
@@ -152,7 +157,7 @@ if __name__ == "__main__":
     batchSize = 50
     
     model = Sequential()
-    model.add(Dense(hiddenSize, input_shape=(gridSize ** 2,), activation='relu'))
+    model.add(Dense(hiddenSize, input_shape=(9,), activation='relu'))
     model.add(Dense(hiddenSize, activation='relu'))
     model.add(Dense(numberOfActions))
     model.compile(sgd(lr=0.2), "mse")
@@ -161,7 +166,7 @@ if __name__ == "__main__":
     experienceReplay = ExperienceReplay(maxMemory=maxMemory)
 
     winCount = 0
-    for epoch in epochs:
+    for epoch in range(epochs):
         loss = 0.0
         game.reset()
         gameOver = False
@@ -183,14 +188,21 @@ if __name__ == "__main__":
 
             state, reward = game.act(action, 2)
 
-            if (game.hasWon(2)):
+            if (hasWon(game.getState(), 2)):
                 winCount += 1
                 gameOver = True
+                break
+                
+            playerMove(game, 1)
+            if (hasWon(game.getState(), 1)):
+                print("Player won")
+                gameOver = True
+                break
             
             experienceReplay.remember([previousState, action, reward, state], gameOver)
             inputs, targets = experienceReplay.getBatch(model, batchSize=batchSize)
-            loss += model.train_on_batch(inputs, targets)[0]
-        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {}".format(e, loss, win_cnt))
+            loss += model.train_on_batch(inputs, targets)
+        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {}".format(epoch, loss, winCount))
 
     model.save_weights("model.h5", overwrite=True)
     with open("model.json", "w") as outfile:
