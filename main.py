@@ -68,7 +68,14 @@ class Game:
         [row, column] = translateAction(action)
         self.state[row][column] = symbol
         reward = self.getReward(symbol)
-        return self.state.reshape(1, -1), reward
+
+        victory = -1
+        if (hasWon(self.state, symbol)):
+            victory = symbol
+        elif (self.boardFull()):
+            victory = 0
+
+        return self.state.reshape(1, -1), reward, victory
 
     def isValidAction(self, action):
         [row, column] = translateAction(action)
@@ -76,7 +83,7 @@ class Game:
             return False
         return self.state[row][column] == 0
 
-    def getState(self):
+    def getFlatState(self):
         return self.state.reshape(1, -1)
 
     def reset(self):
@@ -84,7 +91,7 @@ class Game:
 
     def getReward(self, symbol):
         reward = 0
-        if (hasWon(self.getState(), symbol)):
+        if (hasWon(self.state, symbol)):
             reward += 100
         return reward
 
@@ -100,7 +107,7 @@ def play(model):
             move = getInput(model)
 
         game.act(move, symbol)
-        if (hasWon(game.getState(), symbol)):
+        if (hasWon(game.state, symbol)):
             return symbol
         playerTurn = not playerTurn
         print(playerTurn)
@@ -144,7 +151,7 @@ def playerMove(game, symbol):
     action = numpy.random.randint(0, 9)
     while (not game.isValidAction(action)):
         action = numpy.random.randint(0, 9)
-    game.act(action, symbol)
+    return game.act(action, symbol)
 
 
 if __name__ == "__main__":
@@ -166,11 +173,13 @@ if __name__ == "__main__":
     experienceReplay = ExperienceReplay(maxMemory=maxMemory)
 
     winCount = 0
+    tiedCount = 0
+    lossCount = 0
     for epoch in range(epochs):
         loss = 0.0
         game.reset()
         gameOver = False
-        state = game.getState()
+        state = game.getFlatState()
 
         while (not gameOver):
             previousState = state
@@ -180,29 +189,36 @@ if __name__ == "__main__":
                 while (not game.isValidAction(action)):
                     action = numpy.random.randint(0, numberOfActions)
             else:
-                q = model.predict(previousState)
-                action = numpy.argmax(q[0])
+                q = model.predict(previousState).reshape(9,)
+                action = numpy.argmax(q)
                 while (not game.isValidAction(action)):
-                    numpy.delete(q[0], action)
-                    action = numpy.argmax(q[0])
+                    q[action] = -10
+                    action = numpy.argmax(q)
 
-            state, reward = game.act(action, 2)
+            state, reward, victory = game.act(action, 2)
 
-            if (hasWon(game.getState(), 2)):
+            if (victory == 2):
                 winCount += 1
                 gameOver = True
                 break
                 
-            playerMove(game, 1)
-            if (hasWon(game.getState(), 1)):
-                print("Player won")
+            if (victory == -1):
+                _, _, victory = playerMove(game, 1)
+
+            if (victory == 0):
+                tiedCount += 1
+                gameOver = True
+                break
+
+            if (victory == 1):
+                lossCount += 1
                 gameOver = True
                 break
             
             experienceReplay.remember([previousState, action, reward, state], gameOver)
             inputs, targets = experienceReplay.getBatch(model, batchSize=batchSize)
             loss += model.train_on_batch(inputs, targets)
-        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {}".format(epoch, loss, winCount))
+        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {} | Tied count {} | Loss count {}".format(epoch, loss, winCount, tiedCount, lossCount))
 
     model.save_weights("model.h5", overwrite=True)
     with open("model.json", "w") as outfile:
