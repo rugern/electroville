@@ -147,11 +147,24 @@ class ExperienceReplay:
         return inputs, targets
     
 
-def playerMove(game, symbol):
+def randomMove(game, symbol):
     action = numpy.random.randint(0, 9)
     while (not game.isValidAction(action)):
         action = numpy.random.randint(0, 9)
     return game.act(action, symbol)
+
+
+def userMove(game, symbol):
+    action = input("Please choose an action [0-8]:")
+    while (not game.isValidAction(action)):
+        action = input("Not valid, please try again:")
+    return game.act(action, symbol)
+
+
+def saveNetwork(model):
+    model.save_weights("model.h5", overwrite=True)
+    with open("model.json", "w") as outfile:
+        json.dump(model.to_json(), outfile)
 
 
 if __name__ == "__main__":
@@ -175,52 +188,65 @@ if __name__ == "__main__":
     winCount = 0
     tiedCount = 0
     lossCount = 0
-    for epoch in range(epochs):
-        loss = 0.0
-        game.reset()
-        gameOver = False
-        state = game.getFlatState()
+    answer = ''
+    opponentMove = userMove
 
-        while (not gameOver):
-            previousState = state
-            action = None
-            if (numpy.random.rand() <= exploration):
-                action = numpy.random.randint(0, numberOfActions)
-                while (not game.isValidAction(action)):
+    while (answer != 'q'):
+        answer = input("Choose an option: (q)uit, (p)lay, (t)rain")
+        if (answer == 'q'):
+            saveNetwork(model)
+            break;
+        elif (answer == 'p'):
+            opponentMove = userMove
+        elif (answer == 't'):
+            opponentMove = randomMove
+        else:
+            print('Please choose one of the options')
+            break;
+
+        for epoch in range(epochs):
+            loss = 0.0
+            game.reset()
+            gameOver = False
+            state = game.getFlatState()
+
+            while (not gameOver):
+                previousState = state
+                action = None
+                if (numpy.random.rand() <= exploration):
                     action = numpy.random.randint(0, numberOfActions)
-            else:
-                q = model.predict(previousState).reshape(9,)
-                action = numpy.argmax(q)
-                while (not game.isValidAction(action)):
-                    q[action] = -10
+                    while (not game.isValidAction(action)):
+                        action = numpy.random.randint(0, numberOfActions)
+                else:
+                    q = model.predict(previousState).reshape(9,)
                     action = numpy.argmax(q)
+                    while (not game.isValidAction(action)):
+                        q[action] = -10
+                        action = numpy.argmax(q)
 
-            state, reward, victory = game.act(action, 2)
+                state, reward, victory = game.act(action, 2)
 
-            if (victory == 2):
-                winCount += 1
-                gameOver = True
-                break
-                
-            if (victory == -1):
-                _, _, victory = playerMove(game, 1)
+                if (victory == 2):
+                    winCount += 1
+                    gameOver = True
+                    break
 
-            if (victory == 0):
-                tiedCount += 1
-                gameOver = True
-                break
+                if (victory == -1):
+                    _, _, victory = opponentMove(game, 1)
 
-            if (victory == 1):
-                lossCount += 1
-                gameOver = True
-                break
-            
-            experienceReplay.remember([previousState, action, reward, state], gameOver)
-            inputs, targets = experienceReplay.getBatch(model, batchSize=batchSize)
-            loss += model.train_on_batch(inputs, targets)
-        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {} | Tied count {} | Loss count {}".format(epoch, loss, winCount, tiedCount, lossCount))
+                if (victory == 0):
+                    tiedCount += 1
+                    gameOver = True
+                    break
 
-    model.save_weights("model.h5", overwrite=True)
-    with open("model.json", "w") as outfile:
-        json.dump(model.to_json(), outfile)
+                if (victory == 1):
+                    lossCount += 1
+                    gameOver = True
+                    break
+
+                experienceReplay.remember([previousState, action, reward, state], gameOver)
+                inputs, targets = experienceReplay.getBatch(model, batchSize=batchSize)
+                loss += model.train_on_batch(inputs, targets)
+            print("Epoch {:03d}/999 | Loss {:.4f} | Win count {} | Tied count {} | Loss count {}".format(epoch, loss, winCount, tiedCount, lossCount))
+
 
