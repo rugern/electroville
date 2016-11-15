@@ -123,7 +123,9 @@ class ExperienceReplay:
             previousState, action, reward, state = self.memory[item][0]
             gameOver = self.memory[item][1]
             inputs[i:i + 1] = previousState
-            targets[i] = model.predict(previousState)[0]
+            prediction = model.predict(previousState)
+            nextPred = prediction[0]
+            targets[i] = nextPred
             qValue = numpy.max(model.predict(state)[0])
             if (gameOver):
                 targets[i, action] = reward
@@ -183,9 +185,16 @@ class Player:
 
     def getAction(self, game, previousState):
         printBoard(game.state)
-        action = int(input("Please choose an action [0-8]:"))
-        while (not game.isValidAction(action)):
-            action = int(input("Not valid, please try again:"))
+        action = "halla"
+        valid = False
+        isInteger = False
+        while (not valid or not isInteger):
+            try:
+                action = int(input("Please choose an action [0-8]:"))
+                isInteger = True
+                valid = game.isValidAction(action)
+            except ValueError:
+                isInteger = False
         return action
 
 
@@ -224,31 +233,45 @@ class Learner:
             json.dump(self.model.to_json(), outfile)
 
 
+def getAnswer():
+    answer = "invalid"
+    valid = False
+    validAnswers = ['q', 'p', 't']
+    while (not valid):
+        answer = input("Choose an option: (q)uit, (p)lay, (t)rain")
+        valid = any(validAnswer == answer for validAnswer in validAnswers)
+    return answer
+
 
 if __name__ == "__main__":
     brain = Learner(getConfig("brain"), 2)
+    brain2 = Learner(getConfig("brain2"), 1)
+    player = Player(getConfig("Not applicable"), 1)
+
     game = Game()
 
     tiedCount = 0
     answer = ''
     opponent = None
+    epochs = 30
 
     while (answer != 'q'):
-        answer = input("Choose an option: (q)uit, (p)lay, (t)rain")
+        answer = getAnswer()
         if (answer == 'q'):
             brain.save()
-            if (hasattr(opponent, "save")):
-                opponent.save()
+            brain2.save()
             break;
         elif (answer == 'p'):
-            opponent = Player(getConfig("Not applicable"), 1)
+            opponent = player
+            epochs = 1
         elif (answer == 't'):
-            opponent = Learner(getConfig("brain2"), 1)
+            opponent = brain2
+            epochs = 30
         else:
             print('Please choose one of the options')
             continue;
 
-        for epoch in range(brain.config["epochs"]):
+        for epoch in range(epochs):
             brain.loss = 0.0
             opponent.loss = 0.0
 
