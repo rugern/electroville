@@ -1,10 +1,12 @@
 import os
+import random
 import json
 import numpy
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.optimizers import sgd
 
+import config as configurations
 
 def printLine():
     print("#######################")
@@ -54,6 +56,20 @@ def hasWon(state, symbol):
         if (state[2-i][i] != symbol):
             leftDiagonal = False
     return rightDiagonal or leftDiagonal
+
+
+def getNumberInput(text, validator):
+    number = 0
+    valid = False
+    isInteger = False
+    while (not valid or not isInteger):
+        try:
+            number = int(input(text))
+            isInteger = True
+            valid = validator(number)
+        except ValueError:
+            isInteger = False
+    return number
 
 
 class Game:
@@ -135,26 +151,11 @@ class ExperienceReplay:
         return inputs, targets
     
 
-def getConfig(filename):
-    gridSize = 9
-    config = {
-            "exploration": 0.1,
-            "gridSize": gridSize,
-            "numberOfActions": gridSize,
-            "epochs": 20,
-            "maxMemory": 500,
-            "hiddenSize": 100,
-            "batchSize": 50,
-            "filename": filename,
-    }
-    return config
-
-
 def getModel(config):
     model = Sequential()
-    model.add(Dense(config["hiddenSize"], input_shape=(9,), activation='relu'))
-    model.add(Dense(config["hiddenSize"], activation='relu'))
-    model.add(Dense(config["numberOfActions"]))
+    model.add(Dense(config["hiddenSize"], input_shape=(9,), activation="relu"))
+    model.add(Dense(config["hiddenSize"], activation="relu"))
+    model.add(Dense(config["numberOfActions"], activation="sigmoid"))
     model.compile(sgd(lr=0.2), "mse")
 
     weightsFilename = config["filename"] + ".h5"
@@ -165,7 +166,7 @@ def getModel(config):
 
 
 class RandomPlayer:
-    def __init__(self, config, symbol):
+    def __init__(self, symbol):
         self.symbol = symbol
         self.winCount = 0
         self.loss = 0.0
@@ -178,28 +179,20 @@ class RandomPlayer:
 
 
 class Player:
-    def __init__(self, config, symbol):
+    def __init__(self, symbol):
         self.symbol = symbol
         self.winCount = 0
         self.loss = 0.0
 
     def getAction(self, game, previousState):
         printBoard(game.state)
-        action = "halla"
-        valid = False
-        isInteger = False
-        while (not valid or not isInteger):
-            try:
-                action = int(input("Please choose an action [0-8]:"))
-                isInteger = True
-                valid = game.isValidAction(action)
-            except ValueError:
-                isInteger = False
-        return action
+        text = "Please choose an action [0-8]:"
+        validator = lambda x: x >= 0 and x < 9
+        return getNumberInput(text, validator)
 
 
 class Learner:
-    def __init__(self, config, symbol):
+    def __init__(self, symbol, config):
         self.config = config
         self.symbol = symbol
         self.winCount = 0
@@ -236,7 +229,7 @@ class Learner:
 def getAnswer():
     answer = "invalid"
     valid = False
-    validAnswers = ['q', 'p', 't']
+    validAnswers = ["q", "p", "t"]
     while (not valid):
         answer = input("Choose an option: (q)uit, (p)lay, (t)rain")
         valid = any(validAnswer == answer for validAnswer in validAnswers)
@@ -244,31 +237,37 @@ def getAnswer():
 
 
 if __name__ == "__main__":
-    brain = Learner(getConfig("brain"), 2)
-    brain2 = Learner(getConfig("brain2"), 1)
-    player = Player(getConfig("Not applicable"), 1)
+    brain = Learner(2, configurations.brain)
+    brain2 = Learner(1, configurations.brain2)
+    player = Player(1)
 
     game = Game()
 
     tiedCount = 0
-    answer = ''
+    answer = ""
+    computer = None
     opponent = None
     epochs = 30
 
-    while (answer != 'q'):
+    while (answer != "q"):
         answer = getAnswer()
-        if (answer == 'q'):
+        if (answer == "q"):
             brain.save()
             brain2.save()
             break;
-        elif (answer == 'p'):
+        elif (answer == "p"):
             opponent = player
+            promptText = "Please choose computer (1: brain. 2: brain2):"
+            validator = lambda x: x == 1 or x == 2
+            number = getNumberInput(promptText, validator)
+            computer = brain if number == 1 else brain2
             epochs = 1
-        elif (answer == 't'):
+        elif (answer == "t"):
+            computer = brain
             opponent = brain2
-            epochs = 30
+            epochs = 100
         else:
-            print('Please choose one of the options')
+            print("Please choose one of the options")
             continue;
 
         for epoch in range(epochs):
@@ -278,8 +277,8 @@ if __name__ == "__main__":
             game.reset()
             gameOver = False
             state = game.getFlatState()
-            currentPlayer = brain
-            brainIsPlaying = True
+            brainIsPlaying = random.randint(0, 1)
+            currentPlayer = brain if brainIsPlaying else opponent
 
             while (not gameOver):
                 previousState = state
